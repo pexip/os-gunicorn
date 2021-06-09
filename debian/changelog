@@ -1,3 +1,9 @@
+gunicorn (20.1.0-1pexip1) pexip; urgency=medium
+
+  * Prepare Pexip packaging
+
+ -- Huw Jones <huw@pexip.com>  Wed, 09 Jun 2021 16:51:26 +0000
+
 gunicorn (20.1.0-1) unstable; urgency=medium
 
   * New upstream release.
