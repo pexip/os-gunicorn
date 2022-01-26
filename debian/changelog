@@ -1,3 +1,9 @@
+gunicorn (20.1.0-1pexip2) pexip; urgency=medium
+
+  * Bump version
+
+ -- Huw Jones <huw@pexip.com>  Wed, 26 Jan 2022 10:13:16 +0000
+
 gunicorn (20.1.0-1pexip1) pexip; urgency=medium
 
   * Prepare Pexip packaging
