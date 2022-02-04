@@ -1,0 +1,39 @@
+From 1f07f79b0384396846276d194d80bd83c14c966e Mon Sep 17 00:00:00 2001
+From: Huw Jones <huw@pexip.com>
+Date: Fri, 4 Feb 2022 14:40:18 +0000
+Subject: [PATCH] access log: add (P)ID without <>
+
+---
+ gunicorn/config.py   | 3 ++-
+ gunicorn/glogging.py | 1 +
+ 2 files changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/gunicorn/config.py b/gunicorn/config.py
+index 8fd281b..e72e515 100644
+--- a/gunicorn/config.py
++++ b/gunicorn/config.py
+@@ -1329,7 +1329,8 @@ class AccessLogFormat(Setting):
+         M            request time in milliseconds
+         D            request time in microseconds
+         L            request time in decimal seconds
+-        p            process ID
++        P            process ID
++        p            <process ID>
+         {header}i    request header
+         {header}o    response header
+         {variable}e  environment variable
+diff --git a/gunicorn/glogging.py b/gunicorn/glogging.py
+index 08bc121..05c3095 100644
+--- a/gunicorn/glogging.py
++++ b/gunicorn/glogging.py
+@@ -301,6 +301,7 @@ class Logger(object):
+             'D': (request_time.seconds * 1000000) + request_time.microseconds,
+             'M': (request_time.seconds * 1000) + int(request_time.microseconds/1000),
+             'L': "%d.%06d" % (request_time.seconds, request_time.microseconds),
++            'P': str(os.getpid()),
+             'p': "<%s>" % os.getpid()
+         }
+ 
+-- 
+2.34.1
+

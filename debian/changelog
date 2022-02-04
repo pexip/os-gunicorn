@@ -1,3 +1,9 @@
+gunicorn (20.1.0-1pexip3) pexip; urgency=medium
+
+  * access log: add (P)ID without <>
+
+ -- Huw Jones <huw@pexip.com>  Fri, 4 Feb 2022 14:42:36 +0000
+
 gunicorn (20.1.0-1pexip2) pexip; urgency=medium
 
   * Bump version
