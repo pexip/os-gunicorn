@@ -1,3 +1,44 @@
+gunicorn (20.1.0-6) unstable; urgency=medium
+
+  [ Debian Janitor ]
+  * Remove constraints unnecessary since buster (oldstable)
+
+ -- Jelmer Vernooĳ <jelmer@debian.org>  Mon, 31 Oct 2022 17:36:51 +0000
+
+gunicorn (20.1.0-5) unstable; urgency=medium
+
+  [ Debian Janitor ]
+  * Update renamed lintian tag names in lintian overrides.
+  * Update standards version to 4.6.1, no changes needed.
+
+ -- Jelmer Vernooĳ <jelmer@debian.org>  Fri, 28 Oct 2022 19:10:22 +0100
+
+gunicorn (20.1.0-4) unstable; urgency=medium
+
+  * Team upload
+  * Add upstream patch with fix for change in eventlet 0.30.3+
+
+ -- Antonio Terceiro <terceiro@debian.org>  Tue, 18 Oct 2022 18:13:54 -0300
+
+gunicorn (20.1.0-3) unstable; urgency=medium
+
+  [ Debian Janitor ]
+  * Set upstream metadata fields: Repository.
+
+ -- Jelmer Vernooĳ <jelmer@debian.org>  Mon, 17 Oct 2022 02:39:50 +0100
+
+gunicorn (20.1.0-2) unstable; urgency=medium
+
+  [ Chris Lamb ]
+  * Move package to Python Team.
+  * Update debian/watch version.
+  * Bump Standards-Version to 4.6.0.
+
+  [ Debian Janitor ]
+  * Apply multi-arch hints. + gunicorn-examples: Add Multi-Arch: foreign.
+
+ -- Chris Lamb <lamby@debian.org>  Tue, 02 Nov 2021 17:35:46 +0000
+
 gunicorn (20.1.0-1) unstable; urgency=medium
 
   * New upstream release.

@@ -1,2 +1,2 @@
 # Upstream not issuing signatures.
-debian-watch-does-not-check-gpg-signature
+debian-watch-does-not-check-openpgp-signature
