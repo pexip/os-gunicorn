@@ -2,15 +2,17 @@ Source: gunicorn
 Section: httpd
 Priority: optional
 Maintainer: Pexip AS <packaging@pexip.com>
-XSBC-Pexip-Original-Maintainer: Chris Lamb <lamby@debian.org>
+XSBC-Pexip-Original-Maintainer: Debian Python Team <team+python@tracker.debian.org>
+XSBC-Pexip-Original-Uploaders:
+ Chris Lamb <lamby@debian.org>,
 Build-Depends:
  debhelper-compat (= 12),
  dh-python,
  python3-all,
  python3-setuptools,
-Standards-Version: 4.5.1
-Vcs-Git: https://salsa.debian.org/lamby/pkg-gunicorn.git
-Vcs-Browser: https://salsa.debian.org/lamby/pkg-gunicorn
+Standards-Version: 4.6.1
+Vcs-Git: https://salsa.debian.org/python-team/packages/gunicorn.git
+Vcs-Browser: https://salsa.debian.org/python-team/packages/gunicorn
 Homepage: https://gunicorn.org/
 Rules-Requires-Root: no
 XS-Pexip-Upstream: http://deb.debian.org/debian/ bookworm
@@ -52,13 +54,10 @@ Package: gunicorn-examples
 Architecture: all
 Depends:
  ${misc:Depends},
-Replaces:
- gunicorn (<< 19.0-3),
-Breaks:
- gunicorn (<< 19.0-3),
 Recommends:
  libjs-jquery,
  libjs-jquery-flot,
+Multi-Arch: foreign
 Description: Event-based HTTP/WSGI server (examples)
  Green Unicorn (gunicorn) is an HTTP/WSGI server designed to serve fast clients
  or sleepy applications. That is to say; behind a buffering front-end server
