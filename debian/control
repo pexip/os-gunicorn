@@ -80,8 +80,6 @@ Package: python3-gunicorn
 Section: python
 Architecture: all
 Depends:
- python3-pkg-resources,
- python3-setuptools,
  ${misc:Depends},
  ${python3:Depends},
 Description: Event-based HTTP/WSGI server (Python 3 libraries)

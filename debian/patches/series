@@ -4,3 +4,4 @@
 0004-Set-supplementary-groups-when-changing-uid.patch
 0005-eventlet-worker-ALREADY_HANDLED-WSGI_LOCAL.patch
 0005-access-log-add-P-ID-without.patch
+upstream-2963-remove-setuptools.patch
