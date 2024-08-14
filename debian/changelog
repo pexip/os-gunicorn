@@ -1,9 +1,21 @@
-gunicorn (20.1.0-6+deb12u1) bookworm; urgency=medium
+gunicorn (23.0.0-1) unstable; urgency=medium
 
-  * Non-maintainer upload.
-  * CVE-2024-1135: HTTP Request Smuggling (Closes: #1069126)
+  * Team upload.
+  * Enable autopkgtest-pkg-pybuild.
+  * New upstream release.
 
- -- Adrian Bunk <bunk@debian.org>  Fri, 20 Dec 2024 05:42:55 +0200
+ -- Colin Watson <cjwatson@debian.org>  Wed, 14 Aug 2024 19:08:22 +0100
+
+gunicorn (22.0.0-1) unstable; urgency=medium
+
+  * Team upload.
+  * New upstream release.
+    - Fix running tornado apps (closes: #997990).
+    - CVE-2024-1135: Fail-safe on unsupported request framing (closes:
+      #1069126).
+  * Use pybuild-plugin-pyproject.
+
+ -- Colin Watson <cjwatson@debian.org>  Mon, 27 May 2024 17:41:34 +0100
 
 gunicorn (20.1.0-6) unstable; urgency=medium
 

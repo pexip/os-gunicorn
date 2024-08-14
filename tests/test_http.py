@@ -1,15 +1,24 @@
-# -*- encoding: utf-8 -*-
-
 import io
 import t
 import pytest
-import unittest.mock as mock
+from unittest import mock
 
 from gunicorn import util
 from gunicorn.http.body import Body, LengthReader, EOFReader
 from gunicorn.http.wsgi import Response
 from gunicorn.http.unreader import Unreader, IterUnreader, SocketUnreader
-from gunicorn.http.errors import InvalidHeader, InvalidHeaderName
+from gunicorn.http.errors import InvalidHeader, InvalidHeaderName, InvalidHTTPVersion
+from gunicorn.http.message import TOKEN_RE
+
+
+def test_method_pattern():
+    assert TOKEN_RE.fullmatch("GET")
+    assert TOKEN_RE.fullmatch("MKCALENDAR")
+    assert not TOKEN_RE.fullmatch("GET:")
+    assert not TOKEN_RE.fullmatch("GET;")
+    RFC9110_5_6_2_TOKEN_DELIM = r'"(),/:;<=>?@[\]{}'
+    for bad_char in RFC9110_5_6_2_TOKEN_DELIM:
+        assert not TOKEN_RE.match(bad_char)
 
 
 def assert_readline(payload, size, expected):
@@ -227,3 +236,8 @@ def test_eof_reader_read_invalid_size():
         reader.read([100])
     with pytest.raises(ValueError):
         reader.read(-100)
+
+
+def test_invalid_http_version_error():
+    assert str(InvalidHTTPVersion('foo')) == "Invalid HTTP Version: 'foo'"
+    assert str(InvalidHTTPVersion((2, 1))) == 'Invalid HTTP Version: (2, 1)'

@@ -8,10 +8,10 @@ Signed-off-by: Chris Lamb <lamby@debian.org>
  1 file changed, 2 insertions(+)
 
 diff --git a/gunicorn/util.py b/gunicorn/util.py
-index f6212a6..d8571dd 100644
+index 3c5d404..923e38f 100644
 --- a/gunicorn/util.py
 +++ b/gunicorn/util.py
-@@ -157,6 +157,8 @@ def set_owner_process(uid, gid, initgroups=False):
+@@ -168,6 +168,8 @@ def set_owner_process(uid, gid, initgroups=False):
  
  
  def chown(path, uid, gid):

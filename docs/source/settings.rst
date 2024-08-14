@@ -32,7 +32,7 @@ Config File
 
 **Default:** ``'./gunicorn.conf.py'``
 
-The Gunicorn config file.
+:ref:`The Gunicorn config file<configuration_file>`.
 
 A string of the form ``PATH``, ``file:PATH``, or ``python:MODULE_NAME``.
 
@@ -200,7 +200,7 @@ Identifier   Description
 ===========  ===========
 h            remote address
 l            ``'-'``
-u            user name
+u            user name (if HTTP Basic auth used)
 t            date of the request
 r            status line (e.g. ``GET / HTTP/1.1``)
 m            request method
@@ -210,7 +210,7 @@ H            protocol
 s            status
 B            response length
 b            response length or ``'-'`` (CLF format)
-f            referer
+f            referrer (note: header is ``referer``)
 a            user agent
 T            request time in seconds
 M            request time in milliseconds
@@ -310,18 +310,35 @@ file format.
 ``logconfig_dict``
 ~~~~~~~~~~~~~~~~~~
 
-**Command line:** ``--log-config-dict``
-
 **Default:** ``{}``
 
 The log config dictionary to use, using the standard Python
 logging module's dictionary configuration format. This option
-takes precedence over the :ref:`logconfig` option, which uses the
-older file configuration format.
+takes precedence over the :ref:`logconfig` and :ref:`logconfig-json` options,
+which uses the older file configuration format and JSON
+respectively.
 
 Format: https://docs.python.org/3/library/logging.config.html#logging.config.dictConfig
 
+For more context you can look at the default configuration dictionary for logging,
+which can be found at ``gunicorn.glogging.CONFIG_DEFAULTS``.
+
 .. versionadded:: 19.8
+
+.. _logconfig-json:
+
+``logconfig_json``
+~~~~~~~~~~~~~~~~~~
+
+**Command line:** ``--log-config-json FILE``
+
+**Default:** ``None``
+
+The log config to read config from a JSON file
+
+Format: https://docs.python.org/3/library/logging.config.html#logging.config.jsonConfig
+
+.. versionadded:: 20.0
 
 .. _syslog-addr:
 
@@ -330,7 +347,7 @@ Format: https://docs.python.org/3/library/logging.config.html#logging.config.dic
 
 **Command line:** ``--log-syslog-to SYSLOG_ADDR``
 
-**Default:** ``'unix:///var/run/syslog'``
+**Default:** ``'udp://localhost:514'``
 
 Address to send syslog messages.
 
@@ -407,7 +424,12 @@ environment variable ``PYTHONUNBUFFERED`` .
 
 **Default:** ``None``
 
-``host:port`` of the statsd server to log to.
+The address of the StatsD server to log to.
+
+Address is a string of the form:
+
+* ``unix://PATH`` : for a unix domain socket.
+* ``HOST:PORT`` : for a network address
 
 .. versionadded:: 19.1
 
@@ -503,7 +525,10 @@ SSL certificate file
 
 **Default:** ``<_SSLMethod.PROTOCOL_TLS: 2>``
 
-SSL version to use.
+SSL version to use (see stdlib ssl module's).
+
+.. deprecated:: 21.0
+   The option is deprecated and it is currently ignored. Use :ref:`ssl-context` instead.
 
 ============= ============
 --ssl-version Description
@@ -526,6 +551,9 @@ TLS_SERVER    Auto-negotiate the highest protocol version like TLS,
 .. versionchanged:: 20.0
    This setting now accepts string names based on ``ssl.PROTOCOL_``
    constants.
+.. versionchanged:: 20.0.1
+   The default value has been changed from ``ssl.PROTOCOL_SSLv23`` to
+   ``ssl.PROTOCOL_TLS`` when Python >= 3.6 .
 
 .. _cert-reqs:
 
@@ -537,6 +565,14 @@ TLS_SERVER    Auto-negotiate the highest protocol version like TLS,
 **Default:** ``<VerifyMode.CERT_NONE: 0>``
 
 Whether client certificate is required (see stdlib ssl module's)
+
+===========  ===========================
+--cert-reqs      Description
+===========  ===========================
+`0`          no client verification
+`1`          ssl.CERT_OPTIONAL
+`2`          ssl.CERT_REQUIRED
+===========  ===========================
 
 .. _ca-certs:
 
@@ -818,7 +854,7 @@ The callable needs to accept a single instance variable for the Arbiter.
 .. code-block:: python
 
         def pre_request(worker, req):
-            worker.log.debug("%s %s" % (req.method, req.path))
+            worker.log.debug("%s %s", req.method, req.path)
 
 Called just before a worker processes the request.
 
@@ -914,6 +950,40 @@ Called just before exiting Gunicorn.
 
 The callable needs to accept a single instance variable for the Arbiter.
 
+.. _ssl-context:
+
+``ssl_context``
+~~~~~~~~~~~~~~~
+
+**Default:** 
+
+.. code-block:: python
+
+        def ssl_context(config, default_ssl_context_factory):
+            return default_ssl_context_factory()
+
+Called when SSLContext is needed.
+
+Allows customizing SSL context.
+
+The callable needs to accept an instance variable for the Config and
+a factory function that returns default SSLContext which is initialized
+with certificates, private key, cert_reqs, and ciphers according to
+config and can be further customized by the callable.
+The callable needs to return SSLContext object.
+
+Following example shows a configuration file that sets the minimum TLS version to 1.3:
+
+.. code-block:: python
+
+    def ssl_context(conf, default_ssl_context_factory):
+        import ssl
+        context = default_ssl_context_factory()
+        context.minimum_version = ssl.TLSVersion.TLSv1_3
+        return context
+
+.. versionadded:: 21.0
+
 Server Mechanics
 ----------------
 
@@ -974,7 +1044,7 @@ Set the ``SO_REUSEPORT`` flag on the listening socket.
 
 **Command line:** ``--chdir``
 
-**Default:** ``'/Users/chainz/Documents/Projects/gunicorn/docs'``
+**Default:** ``'.'``
 
 Change directory to specified directory before loading apps.
 
@@ -1058,7 +1128,7 @@ If not set, the default temporary directory will be used.
 
 **Command line:** ``-u USER`` or ``--user USER``
 
-**Default:** ``501``
+**Default:** ``os.geteuid()``
 
 Switch worker processes to run as this user.
 
@@ -1073,7 +1143,7 @@ change the worker process user.
 
 **Command line:** ``-g GROUP`` or ``--group GROUP``
 
-**Default:** ``20``
+**Default:** ``os.getegid()``
 
 Switch worker process to run as this group.
 
@@ -1137,9 +1207,15 @@ temporary directory.
 **Default:** ``{'X-FORWARDED-PROTOCOL': 'ssl', 'X-FORWARDED-PROTO': 'https', 'X-FORWARDED-SSL': 'on'}``
 
 A dictionary containing headers and values that the front-end proxy
-uses to indicate HTTPS requests. These tell Gunicorn to set
+uses to indicate HTTPS requests. If the source IP is permitted by
+:ref:`forwarded-allow-ips` (below), *and* at least one request header matches
+a key-value pair listed in this dictionary, then Gunicorn will set
 ``wsgi.url_scheme`` to ``https``, so your application can tell that the
 request is secure.
+
+If the other headers listed in this dictionary are not present in the request, they will be ignored,
+but if the other headers are present and do not match the provided values, then
+the request will fail to parse. See the note below for more detailed examples of this behaviour.
 
 The dictionary should map upper-case header names to exact string
 values. The value comparisons are case-sensitive, unlike the header
@@ -1156,17 +1232,86 @@ the headers defined here can not be passed directly from the client.
 
 **Command line:** ``--forwarded-allow-ips STRING``
 
-**Default:** ``'127.0.0.1'``
+**Default:** ``'127.0.0.1,::1'``
 
 Front-end's IPs from which allowed to handle set secure headers.
-(comma separate).
+(comma separated).
 
-Set to ``*`` to disable checking of Front-end IPs (useful for setups
-where you don't know in advance the IP address of Front-end, but
-you still trust the environment).
+Set to ``*`` to disable checking of front-end IPs. This is useful for setups
+where you don't know in advance the IP address of front-end, but
+instead have ensured via other means that only your
+authorized front-ends can access Gunicorn.
 
 By default, the value of the ``FORWARDED_ALLOW_IPS`` environment
-variable. If it is not defined, the default is ``"127.0.0.1"``.
+variable. If it is not defined, the default is ``"127.0.0.1,::1"``.
+
+.. note::
+
+    This option does not affect UNIX socket connections. Connections not associated with
+    an IP address are treated as allowed, unconditionally.
+
+.. note::
+
+    The interplay between the request headers, the value of ``forwarded_allow_ips``, and the value of
+    ``secure_scheme_headers`` is complex. Various scenarios are documented below to further elaborate.
+    In each case, we have a request from the remote address 134.213.44.18, and the default value of
+    ``secure_scheme_headers``:
+
+    .. code::
+
+        secure_scheme_headers = {
+            'X-FORWARDED-PROTOCOL': 'ssl',
+            'X-FORWARDED-PROTO': 'https',
+            'X-FORWARDED-SSL': 'on'
+        }
+
+
+    .. list-table::
+        :header-rows: 1
+        :align: center
+        :widths: auto
+
+        * - ``forwarded-allow-ips``
+          - Secure Request Headers
+          - Result
+          - Explanation
+        * - .. code::
+
+                ["127.0.0.1"]
+          - .. code::
+
+                X-Forwarded-Proto: https
+          - .. code::
+
+                wsgi.url_scheme = "http"
+          - IP address was not allowed
+        * - .. code::
+
+                "*"
+          - <none>
+          - .. code::
+
+                wsgi.url_scheme = "http"
+          - IP address allowed, but no secure headers provided
+        * - .. code::
+
+                "*"
+          - .. code::
+
+                X-Forwarded-Proto: https
+          - .. code::
+
+                wsgi.url_scheme = "https"
+          - IP address allowed, one request header matched
+        * - .. code::
+
+                ["134.213.44.18"]
+          - .. code::
+
+                X-Forwarded-Ssl: on
+                X-Forwarded-Proto: http
+          - ``InvalidSchemeHeaders()`` raised
+          - IP address allowed, but the two secure headers disagreed on if HTTPS was used
 
 .. _pythonpath:
 
@@ -1230,13 +1375,19 @@ Example for stunnel config::
 
 **Command line:** ``--proxy-allow-from``
 
-**Default:** ``'127.0.0.1'``
+**Default:** ``'127.0.0.1,::1'``
 
-Front-end's IPs from which allowed accept proxy requests (comma separate).
+Front-end's IPs from which allowed accept proxy requests (comma separated).
 
-Set to ``*`` to disable checking of Front-end IPs (useful for setups
-where you don't know in advance the IP address of Front-end, but
-you still trust the environment)
+Set to ``*`` to disable checking of front-end IPs. This is useful for setups
+where you don't know in advance the IP address of front-end, but
+instead have ensured via other means that only your
+authorized front-ends can access Gunicorn.
+
+.. note::
+
+    This option does not affect UNIX socket connections. Connections not associated with
+    an IP address are treated as allowed, unconditionally.
 
 .. _raw-paste-global-conf:
 
@@ -1251,11 +1402,31 @@ Set a PasteDeploy global config variable in ``key=value`` form.
 
 The option can be specified multiple times.
 
-The variables are passed to the the PasteDeploy entrypoint. Example::
+The variables are passed to the PasteDeploy entrypoint. Example::
 
     $ gunicorn -b 127.0.0.1:8000 --paste development.ini --paste-global FOO=1 --paste-global BAR=2
 
 .. versionadded:: 19.7
+
+.. _permit-obsolete-folding:
+
+``permit_obsolete_folding``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**Command line:** ``--permit-obsolete-folding``
+
+**Default:** ``False``
+
+Permit requests employing obsolete HTTP line folding mechanism
+
+The folding mechanism was deprecated by rfc7230 Section 3.2.4 and will not be
+ employed in HTTP request headers from standards-compliant HTTP clients.
+
+This option is provided to diagnose backwards-incompatible changes.
+Use with care and only if necessary. Temporary; the precise effect of this option may
+change in a future version, or it may be removed altogether.
+
+.. versionadded:: 23.0.0
 
 .. _strip-header-spaces:
 
@@ -1271,7 +1442,123 @@ Strip spaces present between the header name and the the ``:``.
 This is known to induce vulnerabilities and is not compliant with the HTTP/1.1 standard.
 See https://portswigger.net/research/http-desync-attacks-request-smuggling-reborn.
 
-Use with care and only if necessary.
+Use with care and only if necessary. Deprecated; scheduled for removal in 25.0.0
+
+.. versionadded:: 20.0.1
+
+.. _permit-unconventional-http-method:
+
+``permit_unconventional_http_method``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**Command line:** ``--permit-unconventional-http-method``
+
+**Default:** ``False``
+
+Permit HTTP methods not matching conventions, such as IANA registration guidelines
+
+This permits request methods of length less than 3 or more than 20,
+methods with lowercase characters or methods containing the # character.
+HTTP methods are case sensitive by definition, and merely uppercase by convention.
+
+If unset, Gunicorn will apply nonstandard restrictions and cause 400 response status
+in cases where otherwise 501 status is expected. While this option does modify that
+behaviour, it should not be depended upon to guarantee standards-compliant behaviour.
+Rather, it is provided temporarily, to assist in diagnosing backwards-incompatible
+changes around the incomplete application of those restrictions.
+
+Use with care and only if necessary. Temporary; scheduled for removal in 24.0.0
+
+.. versionadded:: 22.0.0
+
+.. _permit-unconventional-http-version:
+
+``permit_unconventional_http_version``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**Command line:** ``--permit-unconventional-http-version``
+
+**Default:** ``False``
+
+Permit HTTP version not matching conventions of 2023
+
+This disables the refusal of likely malformed request lines.
+It is unusual to specify HTTP 1 versions other than 1.0 and 1.1.
+
+This option is provided to diagnose backwards-incompatible changes.
+Use with care and only if necessary. Temporary; the precise effect of this option may
+change in a future version, or it may be removed altogether.
+
+.. versionadded:: 22.0.0
+
+.. _casefold-http-method:
+
+``casefold_http_method``
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+**Command line:** ``--casefold-http-method``
+
+**Default:** ``False``
+
+Transform received HTTP methods to uppercase
+
+HTTP methods are case sensitive by definition, and merely uppercase by convention.
+
+This option is provided because previous versions of gunicorn defaulted to this behaviour.
+
+Use with care and only if necessary. Deprecated; scheduled for removal in 24.0.0
+
+.. versionadded:: 22.0.0
+
+.. _forwarder-headers:
+
+``forwarder_headers``
+~~~~~~~~~~~~~~~~~~~~~
+
+**Command line:** ``--forwarder-headers``
+
+**Default:** ``'SCRIPT_NAME,PATH_INFO'``
+
+A list containing upper-case header field names that the front-end proxy
+(see :ref:`forwarded-allow-ips`) sets, to be used in WSGI environment.
+
+This option has no effect for headers not present in the request.
+
+This option can be used to transfer ``SCRIPT_NAME``, ``PATH_INFO``
+and ``REMOTE_USER``.
+
+It is important that your front-end proxy configuration ensures that
+the headers defined here can not be passed directly from the client.
+
+.. _header-map:
+
+``header_map``
+~~~~~~~~~~~~~~
+
+**Command line:** ``--header-map``
+
+**Default:** ``'drop'``
+
+Configure how header field names are mapped into environ
+
+Headers containing underscores are permitted by RFC9110,
+but gunicorn joining headers of different names into
+the same environment variable will dangerously confuse applications as to which is which.
+
+The safe default ``drop`` is to silently drop headers that cannot be unambiguously mapped.
+The value ``refuse`` will return an error if a request contains *any* such header.
+The value ``dangerous`` matches the previous, not advisable, behaviour of mapping different
+header field names into the same environ name.
+
+If the source is permitted as explained in :ref:`forwarded-allow-ips`, *and* the header name is
+present in :ref:`forwarder-headers`, the header is mapped into environment regardless of
+the state of this setting.
+
+Use with care and only if necessary and after considering if your problem could
+instead be solved by specifically renaming or rewriting only the intended headers
+on a proxy in front of Gunicorn.
+
+.. versionadded:: 22.0.0
 
 Server Socket
 -------------
@@ -1340,8 +1627,9 @@ A positive integer generally in the ``2-4 x $(NUM_CORES)`` range.
 You'll want to vary this a bit to find the best for your particular
 application's work load.
 
-By default, the value of the ``WEB_CONCURRENCY`` environment variable.
-If it is not defined, the default is ``1``.
+By default, the value of the ``WEB_CONCURRENCY`` environment variable,
+which is set by some Platform-as-a-Service providers such as Heroku. If
+it is not defined, the default is ``1``.
 
 .. _worker-class:
 
@@ -1413,7 +1701,7 @@ This setting only affects the Gthread worker type.
 
 The maximum number of simultaneous clients.
 
-This setting only affects the Eventlet and Gevent worker types.
+This setting only affects the ``gthread``, ``eventlet`` and ``gevent`` worker types.
 
 .. _max-requests:
 

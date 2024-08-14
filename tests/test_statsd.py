@@ -15,7 +15,7 @@ class StatsdTestException(Exception):
     pass
 
 
-class MockSocket(object):
+class MockSocket:
     "Pretend to be a UDP socket"
     def __init__(self, failp):
         self.failp = failp
@@ -57,6 +57,18 @@ def test_statsd_fail():
     logger.error("No impact on logging")
     logger.warning("No impact on logging")
     logger.exception("No impact on logging")
+
+
+def test_statsd_host_initialization():
+    c = Config()
+    c.set('statsd_host', 'unix:test.sock')
+    logger = Statsd(c)
+    logger.info("Can be initialized and used with a UDS socket")
+
+    # Can be initialized and used with a UDP address
+    c.set('statsd_host', 'host:8080')
+    logger = Statsd(c)
+    logger.info("Can be initialized and used with a UDP socket")
 
 
 def test_dogstatsd_tags():

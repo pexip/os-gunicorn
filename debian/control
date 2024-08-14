@@ -7,13 +7,16 @@ Uploaders:
 Build-Depends:
  debhelper-compat (= 13),
  dh-python,
+ pybuild-plugin-pyproject,
  python3-all,
+ python3-packaging,
  python3-setuptools,
 Standards-Version: 4.6.1
 Vcs-Git: https://salsa.debian.org/python-team/packages/gunicorn.git
 Vcs-Browser: https://salsa.debian.org/python-team/packages/gunicorn
 Homepage: https://gunicorn.org/
 Rules-Requires-Root: no
+Testsuite: autopkgtest-pkg-pybuild
 
 Package: gunicorn
 Architecture: all
@@ -78,8 +81,6 @@ Package: python3-gunicorn
 Section: python
 Architecture: all
 Depends:
- python3-pkg-resources,
- python3-setuptools,
  ${misc:Depends},
  ${python3:Depends},
 Description: Event-based HTTP/WSGI server (Python 3 libraries)
