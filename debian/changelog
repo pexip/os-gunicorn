@@ -1,3 +1,10 @@
+gunicorn (20.1.0-6+deb12u1) bookworm; urgency=medium
+
+  * Non-maintainer upload.
+  * CVE-2024-1135: HTTP Request Smuggling (Closes: #1069126)
+
+ -- Adrian Bunk <bunk@debian.org>  Fri, 20 Dec 2024 05:42:55 +0200
+
 gunicorn (20.1.0-6) unstable; urgency=medium
 
   [ Debian Janitor ]

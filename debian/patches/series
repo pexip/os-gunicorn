@@ -3,3 +3,8 @@
 0003-Don-t-call-chown-2-if-it-would-be-a-no-op.patch
 0004-Set-supplementary-groups-when-changing-uid.patch
 0005-eventlet-worker-ALREADY_HANDLED-WSGI_LOCAL.patch
+0001-fail-safe-on-unsupported-request-framing.patch
+0002-RFC-compliant-header-field-chunk-validation.patch
+0003-Disallow-empty-header-names.patch
+0004-RFC-compliant-request-line-and-header-parsing.patch
+0005-pytest-raise-on-malformed-test-fixtures.patch

@@ -1,0 +1,316 @@
+From 49a0c27aba38f4e14ccd928474241063dd2e360d Mon Sep 17 00:00:00 2001
+From: Ben Kallus <benjamin.p.kallus.gr@dartmouth.edu>
+Date: Wed, 6 Dec 2023 17:28:40 -0500
+Subject: RFC compliant request line and header parsing
+
+- Unify HEADER_RE and METH_RE
+- Replace CRLF with SP during obs-fold processing (See RFC 9112 Section 5.2, last paragraph)
+- Stop stripping header names.
+- Remove HTAB in OWS in header values that use obs-fold (See RFC 9112 Section 5.2, last paragraph)
+- Use fullmatch instead of search, which has problems with empty strings. (See GHSA-68xg-gqqm-vgj8)
+- Split proxy protocol line on space only. (See proxy protocol Section 2.1, bullet 3)
+- Use fullmatch for method and version (Thank you to Paul Dorn for noticing this.)
+- Replace calls to str.strip() with str.strip(' \t')
+- Split request line on SP only.
+
+Co-authored-by: Paul Dorn <pajod@users.noreply.github.com>
+---
+ gunicorn/http/message.py        | 33 +++++++++--------
+ gunicorn/http/wsgi.py           | 23 ++++++------
+ tests/requests/invalid/003.http |  4 +--
+ tests/requests/invalid/003.py   |  4 +--
+ tests/requests/valid/016.py     | 64 ++++++++++++++++-----------------
+ tests/requests/valid/031.http   |  2 ++
+ tests/requests/valid/031.py     |  7 ++++
+ 7 files changed, 74 insertions(+), 63 deletions(-)
+ create mode 100644 tests/requests/valid/031.http
+ create mode 100644 tests/requests/valid/031.py
+
+diff --git a/gunicorn/http/message.py b/gunicorn/http/message.py
+index 11d485de..96f7a9ea 100644
+--- a/gunicorn/http/message.py
++++ b/gunicorn/http/message.py
+@@ -22,8 +22,7 @@ MAX_REQUEST_LINE = 8190
+ MAX_HEADERS = 32768
+ DEFAULT_MAX_HEADERFIELD_SIZE = 8190
+ 
+-HEADER_RE = re.compile(r"[^!#$%&'*+\-.\^_`|~0-9a-zA-Z]")
+-METH_RE = re.compile(r"[A-Z0-9$-_.]{3,20}")
++TOKEN_RE = re.compile(r"[!#$%&'*+\-.\^_`|~0-9a-zA-Z]+")
+ VERSION_RE = re.compile(r"HTTP/(\d+)\.(\d+)")
+ 
+ 
+@@ -67,8 +66,8 @@ class Message(object):
+         cfg = self.cfg
+         headers = []
+ 
+-        # Split lines on \r\n keeping the \r\n on each line
+-        lines = [bytes_to_str(line) + "\r\n" for line in data.split(b"\r\n")]
++        # Split lines on \r\n
++        lines = [bytes_to_str(line) for line in data.split(b"\r\n")]
+ 
+         # handle scheme headers
+         scheme_header = False
+@@ -84,30 +83,30 @@ class Message(object):
+             if len(headers) >= self.limit_request_fields:
+                 raise LimitRequestHeaders("limit request headers fields")
+ 
+-            # Parse initial header name : value pair.
++            # Parse initial header name: value pair.
+             curr = lines.pop(0)
+-            header_length = len(curr)
++            header_length = len(curr) + len("\r\n")
+             if curr.find(":") <= 0:
+-                raise InvalidHeader(curr.strip())
++                raise InvalidHeader(curr)
+             name, value = curr.split(":", 1)
+             if self.cfg.strip_header_spaces:
+                 name = name.rstrip(" \t").upper()
+             else:
+                 name = name.upper()
+-            if HEADER_RE.search(name):
++            if not TOKEN_RE.fullmatch(name):
+                 raise InvalidHeaderName(name)
+ 
+-            name, value = name.strip(), [value.lstrip()]
++            value = [value.lstrip(" \t")]
+ 
+             # Consume value continuation lines
+             while lines and lines[0].startswith((" ", "\t")):
+                 curr = lines.pop(0)
+-                header_length += len(curr)
++                header_length += len(curr) + len("\r\n")
+                 if header_length > self.limit_request_field_size > 0:
+                     raise LimitRequestHeaders("limit request headers "
+                                               "fields size")
+-                value.append(curr)
+-            value = ''.join(value).rstrip()
++                value.append(curr.strip("\t "))
++            value = " ".join(value)
+ 
+             if header_length > self.limit_request_field_size > 0:
+                 raise LimitRequestHeaders("limit request headers fields size")
+@@ -197,7 +196,7 @@ class Message(object):
+             return True
+         for (h, v) in self.headers:
+             if h == "CONNECTION":
+-                v = v.lower().strip()
++                v = v.lower().strip(" \t")
+                 if v == "close":
+                     return True
+                 elif v == "keep-alive":
+@@ -324,7 +323,7 @@ class Request(Message):
+             raise ForbiddenProxyRequest(self.peer_addr[0])
+ 
+     def parse_proxy_protocol(self, line):
+-        bits = line.split()
++        bits = line.split(" ")
+ 
+         if len(bits) != 6:
+             raise InvalidProxyLine(line)
+@@ -369,12 +368,12 @@ class Request(Message):
+         }
+ 
+     def parse_request_line(self, line_bytes):
+-        bits = [bytes_to_str(bit) for bit in line_bytes.split(None, 2)]
++        bits = [bytes_to_str(bit) for bit in line_bytes.split(b" ", 2)]
+         if len(bits) != 3:
+             raise InvalidRequestLine(bytes_to_str(line_bytes))
+ 
+         # Method
+-        if not METH_RE.match(bits[0]):
++        if not TOKEN_RE.fullmatch(bits[0]):
+             raise InvalidRequestMethod(bits[0])
+         self.method = bits[0].upper()
+ 
+@@ -390,7 +389,7 @@ class Request(Message):
+         self.fragment = parts.fragment or ""
+ 
+         # Version
+-        match = VERSION_RE.match(bits[2])
++        match = VERSION_RE.fullmatch(bits[2])
+         if match is None:
+             raise InvalidHTTPVersion(bits[2])
+         self.version = (int(match.group(1)), int(match.group(2)))
+diff --git a/gunicorn/http/wsgi.py b/gunicorn/http/wsgi.py
+index 83317875..359cb27b 100644
+--- a/gunicorn/http/wsgi.py
++++ b/gunicorn/http/wsgi.py
+@@ -9,7 +9,7 @@ import os
+ import re
+ import sys
+ 
+-from gunicorn.http.message import HEADER_RE
++from gunicorn.http.message import TOKEN_RE
+ from gunicorn.http.errors import InvalidHeader, InvalidHeaderName
+ from gunicorn import SERVER_SOFTWARE, SERVER
+ import gunicorn.util as util
+@@ -18,7 +18,9 @@ import gunicorn.util as util
+ # with sending files in blocks over 2GB.
+ BLKSIZE = 0x3FFFFFFF
+ 
+-HEADER_VALUE_RE = re.compile(r'[^ \t\x21-\x7e\x80-\xff]')
++# RFC9110 5.5: field-vchar = VCHAR / obs-text
++# RFC4234 B.1: VCHAR = 0x21-x07E = printable ASCII
++HEADER_VALUE_RE = re.compile(r'[ \t\x21-\x7e\x80-\xff]*')
+ 
+ log = logging.getLogger(__name__)
+ 
+@@ -249,31 +251,32 @@ class Response(object):
+             if not isinstance(name, str):
+                 raise TypeError('%r is not a string' % name)
+ 
+-            if HEADER_RE.search(name):
++            if not TOKEN_RE.fullmatch(name):
+                 raise InvalidHeaderName('%r' % name)
+ 
+             if not isinstance(value, str):
+                 raise TypeError('%r is not a string' % value)
+ 
+-            if HEADER_VALUE_RE.search(value):
++            if not HEADER_VALUE_RE.fullmatch(value):
+                 raise InvalidHeader('%r' % value)
+ 
+-            value = value.strip()
+-            lname = name.lower().strip()
++            # RFC9110 5.5
++            value = value.strip(" \t")
++            lname = name.lower()
+             if lname == "content-length":
+                 self.response_length = int(value)
+             elif util.is_hoppish(name):
+                 if lname == "connection":
+                     # handle websocket
+-                    if value.lower().strip() == "upgrade":
++                    if value.lower() == "upgrade":
+                         self.upgrade = True
+                 elif lname == "upgrade":
+-                    if value.lower().strip() == "websocket":
+-                        self.headers.append((name.strip(), value))
++                    if value.lower() == "websocket":
++                        self.headers.append((name, value))
+ 
+                 # ignore hopbyhop headers
+                 continue
+-            self.headers.append((name.strip(), value))
++            self.headers.append((name, value))
+ 
+     def is_chunked(self):
+         # Only use chunked responses when the client is
+diff --git a/tests/requests/invalid/003.http b/tests/requests/invalid/003.http
+index cd1ab7fc..5a9eaafc 100644
+--- a/tests/requests/invalid/003.http
++++ b/tests/requests/invalid/003.http
+@@ -1,2 +1,2 @@
+--blargh /foo HTTP/1.1\r\n
+-\r\n
+\ No newline at end of file
++GET\n/\nHTTP/1.1\r\n
++\r\n
+diff --git a/tests/requests/invalid/003.py b/tests/requests/invalid/003.py
+index 86a0774e..5a4ca896 100644
+--- a/tests/requests/invalid/003.py
++++ b/tests/requests/invalid/003.py
+@@ -1,2 +1,2 @@
+-from gunicorn.http.errors import InvalidRequestMethod
+-request = InvalidRequestMethod
+\ No newline at end of file
++from gunicorn.http.errors import InvalidRequestLine
++request = InvalidRequestLine
+diff --git a/tests/requests/valid/016.py b/tests/requests/valid/016.py
+index 139b2700..4e5144f8 100644
+--- a/tests/requests/valid/016.py
++++ b/tests/requests/valid/016.py
+@@ -1,35 +1,35 @@
+-certificate = """-----BEGIN CERTIFICATE-----\r\n
+-    MIIFbTCCBFWgAwIBAgICH4cwDQYJKoZIhvcNAQEFBQAwcDELMAkGA1UEBhMCVUsx\r\n
+-    ETAPBgNVBAoTCGVTY2llbmNlMRIwEAYDVQQLEwlBdXRob3JpdHkxCzAJBgNVBAMT\r\n
+-    AkNBMS0wKwYJKoZIhvcNAQkBFh5jYS1vcGVyYXRvckBncmlkLXN1cHBvcnQuYWMu\r\n
+-    dWswHhcNMDYwNzI3MTQxMzI4WhcNMDcwNzI3MTQxMzI4WjBbMQswCQYDVQQGEwJV\r\n
+-    SzERMA8GA1UEChMIZVNjaWVuY2UxEzARBgNVBAsTCk1hbmNoZXN0ZXIxCzAJBgNV\r\n
+-    BAcTmrsogriqMWLAk1DMRcwFQYDVQQDEw5taWNoYWVsIHBhcmQYJKoZIhvcNAQEB\r\n
+-    BQADggEPADCCAQoCggEBANPEQBgl1IaKdSS1TbhF3hEXSl72G9J+WC/1R64fAcEF\r\n
+-    W51rEyFYiIeZGx/BVzwXbeBoNUK41OK65sxGuflMo5gLflbwJtHBRIEKAfVVp3YR\r\n
+-    gW7cMA/s/XKgL1GEC7rQw8lIZT8RApukCGqOVHSi/F1SiFlPDxuDfmdiNzL31+sL\r\n
+-    0iwHDdNkGjy5pyBSB8Y79dsSJtCW/iaLB0/n8Sj7HgvvZJ7x0fr+RQjYOUUfrePP\r\n
+-    u2MSpFyf+9BbC/aXgaZuiCvSR+8Snv3xApQY+fULK/xY8h8Ua51iXoQ5jrgu2SqR\r\n
+-    wgA7BUi3G8LFzMBl8FRCDYGUDy7M6QaHXx1ZWIPWNKsCAwEAAaOCAiQwggIgMAwG\r\n
+-    1UdEwEB/wQCMAAwEQYJYIZIAYb4QgHTTPAQDAgWgMA4GA1UdDwEB/wQEAwID6DAs\r\n
+-    BglghkgBhvhCAQ0EHxYdVUsgZS1TY2llbmNlIFVzZXIgQ2VydGlmaWNhdGUwHQYD\r\n
+-    VR0OBBYEFDTt/sf9PeMaZDHkUIldrDYMNTBZMIGaBgNVHSMEgZIwgY+AFAI4qxGj\r\n
+-    loCLDdMVKwiljjDastqooXSkcjBwMQswCQYDVQQGEwJVSzERMA8GA1UEChMIZVNj\r\n
+-    aWVuY2UxEjAQBgNVBAsTCUF1dGhvcml0eTELMAkGA1UEAxMCQ0ExLTArBgkqhkiG\r\n
+-    9w0BCQEWHmNhLW9wZXJhdG9yQGdyaWQtc3VwcG9ydC5hYy51a4IBADApBgNVHRIE\r\n
+-    IjAggR5jYS1vcGVyYXRvckBncmlkLXN1cHBvcnQuYWMudWswGQYDVR0gBBIwEDAO\r\n
+-    BgwrBgEEAdkvAQEBAQYwPQYJYIZIAYb4QgEEBDAWLmh0dHA6Ly9jYS5ncmlkLXN1\r\n
+-    cHBvcnQuYWMudmT4sopwqlBWsvcHViL2NybC9jYWNybC5jcmwwPQYJYIZIAYb4Qg\r\n
+-    EDBDAWLmh0dHA6Ly9jYS5ncmlkLXN1cHBvcnQuYWMudWsvcHViL2NybC9jYWNybC\r\n
+-    5jcmwwPwYDVR0fBDgwNjA0oDKgMIYuaHR0cDovL2NhLmdyaWQt5hYy51ay9wdWIv\r\n
+-    Y3JsL2NhY3JsLmNybDANBgkqhkiG9w0BAQUFAAOCAQEAS/U4iiooBENGW/Hwmmd3\r\n
+-    XCy6Zrt08YjKCzGNjorT98g8uGsqYjSxv/hmi0qlnlHs+k/3Iobc3LjS5AMYr5L8\r\n
+-    UO7OSkgFFlLHQyC9JzPfmLCAugvzEbyv4Olnsr8hbxF1MbKZoQxUZtMVu29wjfXk\r\n
+-    hTeApBv7eaKCWpSp7MCbvgzm74izKhu3vlDk9w6qVrxePfGgpKPqfHiOoGhFnbTK\r\n
+-    wTC6o2xq5y0qZ03JonF7OJspEd3I5zKY3E+ov7/ZhW6DqT8UFvsAdjvQbXyhV8Eu\r\n
+-    Yhixw1aKEPzNjNowuIseVogKOLXxWI5vAi5HgXdS0/ES5gDGsABo4fqovUKlgop3\r\n
+-    RA==\r\n
+-    -----END CERTIFICATE-----""".replace("\n\n", "\n")
++certificate = """-----BEGIN CERTIFICATE-----
++ MIIFbTCCBFWgAwIBAgICH4cwDQYJKoZIhvcNAQEFBQAwcDELMAkGA1UEBhMCVUsx
++ ETAPBgNVBAoTCGVTY2llbmNlMRIwEAYDVQQLEwlBdXRob3JpdHkxCzAJBgNVBAMT
++ AkNBMS0wKwYJKoZIhvcNAQkBFh5jYS1vcGVyYXRvckBncmlkLXN1cHBvcnQuYWMu
++ dWswHhcNMDYwNzI3MTQxMzI4WhcNMDcwNzI3MTQxMzI4WjBbMQswCQYDVQQGEwJV
++ SzERMA8GA1UEChMIZVNjaWVuY2UxEzARBgNVBAsTCk1hbmNoZXN0ZXIxCzAJBgNV
++ BAcTmrsogriqMWLAk1DMRcwFQYDVQQDEw5taWNoYWVsIHBhcmQYJKoZIhvcNAQEB
++ BQADggEPADCCAQoCggEBANPEQBgl1IaKdSS1TbhF3hEXSl72G9J+WC/1R64fAcEF
++ W51rEyFYiIeZGx/BVzwXbeBoNUK41OK65sxGuflMo5gLflbwJtHBRIEKAfVVp3YR
++ gW7cMA/s/XKgL1GEC7rQw8lIZT8RApukCGqOVHSi/F1SiFlPDxuDfmdiNzL31+sL
++ 0iwHDdNkGjy5pyBSB8Y79dsSJtCW/iaLB0/n8Sj7HgvvZJ7x0fr+RQjYOUUfrePP
++ u2MSpFyf+9BbC/aXgaZuiCvSR+8Snv3xApQY+fULK/xY8h8Ua51iXoQ5jrgu2SqR
++ wgA7BUi3G8LFzMBl8FRCDYGUDy7M6QaHXx1ZWIPWNKsCAwEAAaOCAiQwggIgMAwG
++ 1UdEwEB/wQCMAAwEQYJYIZIAYb4QgHTTPAQDAgWgMA4GA1UdDwEB/wQEAwID6DAs
++ BglghkgBhvhCAQ0EHxYdVUsgZS1TY2llbmNlIFVzZXIgQ2VydGlmaWNhdGUwHQYD
++ VR0OBBYEFDTt/sf9PeMaZDHkUIldrDYMNTBZMIGaBgNVHSMEgZIwgY+AFAI4qxGj
++ loCLDdMVKwiljjDastqooXSkcjBwMQswCQYDVQQGEwJVSzERMA8GA1UEChMIZVNj
++ aWVuY2UxEjAQBgNVBAsTCUF1dGhvcml0eTELMAkGA1UEAxMCQ0ExLTArBgkqhkiG
++ 9w0BCQEWHmNhLW9wZXJhdG9yQGdyaWQtc3VwcG9ydC5hYy51a4IBADApBgNVHRIE
++ IjAggR5jYS1vcGVyYXRvckBncmlkLXN1cHBvcnQuYWMudWswGQYDVR0gBBIwEDAO
++ BgwrBgEEAdkvAQEBAQYwPQYJYIZIAYb4QgEEBDAWLmh0dHA6Ly9jYS5ncmlkLXN1
++ cHBvcnQuYWMudmT4sopwqlBWsvcHViL2NybC9jYWNybC5jcmwwPQYJYIZIAYb4Qg
++ EDBDAWLmh0dHA6Ly9jYS5ncmlkLXN1cHBvcnQuYWMudWsvcHViL2NybC9jYWNybC
++ 5jcmwwPwYDVR0fBDgwNjA0oDKgMIYuaHR0cDovL2NhLmdyaWQt5hYy51ay9wdWIv
++ Y3JsL2NhY3JsLmNybDANBgkqhkiG9w0BAQUFAAOCAQEAS/U4iiooBENGW/Hwmmd3
++ XCy6Zrt08YjKCzGNjorT98g8uGsqYjSxv/hmi0qlnlHs+k/3Iobc3LjS5AMYr5L8
++ UO7OSkgFFlLHQyC9JzPfmLCAugvzEbyv4Olnsr8hbxF1MbKZoQxUZtMVu29wjfXk
++ hTeApBv7eaKCWpSp7MCbvgzm74izKhu3vlDk9w6qVrxePfGgpKPqfHiOoGhFnbTK
++ wTC6o2xq5y0qZ03JonF7OJspEd3I5zKY3E+ov7/ZhW6DqT8UFvsAdjvQbXyhV8Eu
++ Yhixw1aKEPzNjNowuIseVogKOLXxWI5vAi5HgXdS0/ES5gDGsABo4fqovUKlgop3
++ RA==
++ -----END CERTIFICATE-----""".replace("\n", "")
+ 
+ request = {
+     "method": "GET",
+diff --git a/tests/requests/valid/031.http b/tests/requests/valid/031.http
+new file mode 100644
+index 00000000..cd1ab7fc
+--- /dev/null
++++ b/tests/requests/valid/031.http
+@@ -0,0 +1,2 @@
++-blargh /foo HTTP/1.1\r\n
++\r\n
+\ No newline at end of file
+diff --git a/tests/requests/valid/031.py b/tests/requests/valid/031.py
+new file mode 100644
+index 00000000..9691a002
+--- /dev/null
++++ b/tests/requests/valid/031.py
+@@ -0,0 +1,7 @@
++request = {
++    "method": "-BLARGH",
++    "uri": uri("/foo"),
++    "version": (1, 1),
++    "headers": [],
++    "body": b""
++}
+-- 
+2.30.2
+
