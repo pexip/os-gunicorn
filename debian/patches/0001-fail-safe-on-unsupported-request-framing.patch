@@ -1,0 +1,692 @@
+From f6f3c50e9cd5e0bffe3bec65d7f8690baab9c824 Mon Sep 17 00:00:00 2001
+From: "Paul J. Dorn" <pajod@users.noreply.github.com>
+Date: Thu, 7 Dec 2023 09:22:30 +0100
+Subject: fail-safe on unsupported request framing
+
+If we promise wsgi.input_terminated, we better get it right - or not at all.
+* chunked encoding on HTTP <= 1.1
+* chunked not last transfer coding
+* multiple chinked codings
+* any unknown codings (yes, this too! because we do not detect unusual syntax that is still chunked)
+* empty coding (plausibly harmless, but not see in real life anyway - refused, for the moment)
+---
+ gunicorn/config.py                      | 18 ++++++++++
+ gunicorn/http/errors.py                 |  9 +++++
+ gunicorn/http/message.py                | 45 +++++++++++++++++++++++++
+ tests/requests/invalid/chunked_01.http  | 12 +++++++
+ tests/requests/invalid/chunked_01.py    |  2 ++
+ tests/requests/invalid/chunked_02.http  |  9 +++++
+ tests/requests/invalid/chunked_02.py    |  2 ++
+ tests/requests/invalid/chunked_03.http  |  8 +++++
+ tests/requests/invalid/chunked_03.py    |  2 ++
+ tests/requests/invalid/chunked_04.http  | 11 ++++++
+ tests/requests/invalid/chunked_04.py    |  2 ++
+ tests/requests/invalid/chunked_05.http  | 11 ++++++
+ tests/requests/invalid/chunked_05.py    |  2 ++
+ tests/requests/invalid/chunked_06.http  |  9 +++++
+ tests/requests/invalid/chunked_06.py    |  2 ++
+ tests/requests/invalid/chunked_08.http  |  9 +++++
+ tests/requests/invalid/chunked_08.py    |  2 ++
+ tests/requests/invalid/nonascii_01.http |  4 +++
+ tests/requests/invalid/nonascii_01.py   |  5 +++
+ tests/requests/invalid/nonascii_02.http |  4 +++
+ tests/requests/invalid/nonascii_02.py   |  5 +++
+ tests/requests/invalid/nonascii_04.http |  5 +++
+ tests/requests/invalid/nonascii_04.py   |  5 +++
+ tests/requests/invalid/prefix_01.http   |  2 ++
+ tests/requests/invalid/prefix_01.py     |  2 ++
+ tests/requests/invalid/prefix_02.http   |  2 ++
+ tests/requests/invalid/prefix_02.py     |  2 ++
+ tests/requests/invalid/prefix_03.http   |  4 +++
+ tests/requests/invalid/prefix_03.py     |  5 +++
+ tests/requests/invalid/prefix_04.http   |  5 +++
+ tests/requests/invalid/prefix_04.py     |  5 +++
+ tests/requests/invalid/prefix_05.http   |  4 +++
+ tests/requests/invalid/prefix_05.py     |  5 +++
+ tests/requests/valid/025.http           |  9 +++--
+ tests/requests/valid/025.py             |  6 +++-
+ tests/requests/valid/025compat.http     | 18 ++++++++++
+ tests/requests/valid/025compat.py       | 27 +++++++++++++++
+ tests/requests/valid/029.http           |  2 +-
+ tests/requests/valid/029.py             |  2 +-
+ tests/treq.py                           |  4 ++-
+ 40 files changed, 281 insertions(+), 6 deletions(-)
+ create mode 100644 tests/requests/invalid/chunked_01.http
+ create mode 100644 tests/requests/invalid/chunked_01.py
+ create mode 100644 tests/requests/invalid/chunked_02.http
+ create mode 100644 tests/requests/invalid/chunked_02.py
+ create mode 100644 tests/requests/invalid/chunked_03.http
+ create mode 100644 tests/requests/invalid/chunked_03.py
+ create mode 100644 tests/requests/invalid/chunked_04.http
+ create mode 100644 tests/requests/invalid/chunked_04.py
+ create mode 100644 tests/requests/invalid/chunked_05.http
+ create mode 100644 tests/requests/invalid/chunked_05.py
+ create mode 100644 tests/requests/invalid/chunked_06.http
+ create mode 100644 tests/requests/invalid/chunked_06.py
+ create mode 100644 tests/requests/invalid/chunked_08.http
+ create mode 100644 tests/requests/invalid/chunked_08.py
+ create mode 100644 tests/requests/invalid/nonascii_01.http
+ create mode 100644 tests/requests/invalid/nonascii_01.py
+ create mode 100644 tests/requests/invalid/nonascii_02.http
+ create mode 100644 tests/requests/invalid/nonascii_02.py
+ create mode 100644 tests/requests/invalid/nonascii_04.http
+ create mode 100644 tests/requests/invalid/nonascii_04.py
+ create mode 100644 tests/requests/invalid/prefix_01.http
+ create mode 100644 tests/requests/invalid/prefix_01.py
+ create mode 100644 tests/requests/invalid/prefix_02.http
+ create mode 100644 tests/requests/invalid/prefix_02.py
+ create mode 100644 tests/requests/invalid/prefix_03.http
+ create mode 100644 tests/requests/invalid/prefix_03.py
+ create mode 100644 tests/requests/invalid/prefix_04.http
+ create mode 100644 tests/requests/invalid/prefix_04.py
+ create mode 100644 tests/requests/invalid/prefix_05.http
+ create mode 100644 tests/requests/invalid/prefix_05.py
+ create mode 100644 tests/requests/valid/025compat.http
+ create mode 100644 tests/requests/valid/025compat.py
+
+diff --git a/gunicorn/config.py b/gunicorn/config.py
+index 8fd281be..450494cf 100644
+--- a/gunicorn/config.py
++++ b/gunicorn/config.py
+@@ -2118,3 +2118,21 @@ class StripHeaderSpaces(Setting):
+ 
+         Use with care and only if necessary.
+         """
++
++
++class TolerateDangerousFraming(Setting):
++    name = "tolerate_dangerous_framing"
++    section = "Server Mechanics"
++    cli = ["--tolerate-dangerous-framing"]
++    validator = validate_bool
++    action = "store_true"
++    default = False
++    desc = """\
++        Process requests with both Transfer-Encoding and Content-Length
++
++        This is known to induce vulnerabilities, but not strictly forbidden by RFC9112.
++
++        Use with care and only if necessary. May be removed in a future version.
++
++        .. versionadded:: 22.0.0
++        """
+diff --git a/gunicorn/http/errors.py b/gunicorn/http/errors.py
+index 7839ef05..1ee673b4 100644
+--- a/gunicorn/http/errors.py
++++ b/gunicorn/http/errors.py
+@@ -64,6 +64,15 @@ class InvalidHeaderName(ParseException):
+         return "Invalid HTTP header name: %r" % self.hdr
+ 
+ 
++class UnsupportedTransferCoding(ParseException):
++    def __init__(self, hdr):
++        self.hdr = hdr
++        self.code = 501
++
++    def __str__(self):
++        return "Unsupported transfer coding: %r" % self.hdr
++
++
+ class InvalidChunkSize(IOError):
+     def __init__(self, data):
+         self.data = data
+diff --git a/gunicorn/http/message.py b/gunicorn/http/message.py
+index 17d22402..5018a188 100644
+--- a/gunicorn/http/message.py
++++ b/gunicorn/http/message.py
+@@ -12,6 +12,7 @@ from gunicorn.http.errors import (
+     InvalidHeader, InvalidHeaderName, NoMoreData,
+     InvalidRequestLine, InvalidRequestMethod, InvalidHTTPVersion,
+     LimitRequestLine, LimitRequestHeaders,
++    UnsupportedTransferCoding,
+ )
+ from gunicorn.http.errors import InvalidProxyLine, ForbiddenProxyRequest
+ from gunicorn.http.errors import InvalidSchemeHeaders
+@@ -36,6 +37,7 @@ class Message(object):
+         self.trailers = []
+         self.body = None
+         self.scheme = "https" if cfg.is_ssl else "http"
++        self.must_close = False
+ 
+         # set headers limits
+         self.limit_request_fields = cfg.limit_request_fields
+@@ -55,6 +57,9 @@ class Message(object):
+         self.unreader.unread(unused)
+         self.set_body_reader()
+ 
++    def force_close(self):
++        self.must_close = True
++
+     def parse(self, unreader):
+         raise NotImplementedError()
+ 
+@@ -132,9 +137,47 @@ class Message(object):
+                 content_length = value
+             elif name == "TRANSFER-ENCODING":
+                 if value.lower() == "chunked":
++                    # DANGER: transer codings stack, and stacked chunking is never intended
++                    if chunked:
++                        raise InvalidHeader("TRANSFER-ENCODING", req=self)
+                     chunked = True
++                elif value.lower() == "identity":
++                    # does not do much, could still plausibly desync from what the proxy does
++                    # safe option: nuke it, its never needed
++                    if chunked:
++                        raise InvalidHeader("TRANSFER-ENCODING", req=self)
++                elif value.lower() == "":
++                    # lacking security review on this case
++                    # offer the option to restore previous behaviour, but refuse by default, for now
++                    self.force_close()
++                    if not self.cfg.tolerate_dangerous_framing:
++                        raise UnsupportedTransferCoding(value)
++                # DANGER: do not change lightly; ref: request smuggling
++                # T-E is a list and we *could* support correctly parsing its elements
++                #  .. but that is only safe after getting all the edge cases right
++                #  .. for which no real-world need exists, so best to NOT open that can of worms
++                else:
++                    self.force_close()
++                    # even if parser is extended, retain this branch:
++                    #  the "chunked not last" case remains to be rejected!
++                    raise UnsupportedTransferCoding(value)
+ 
+         if chunked:
++            # two potentially dangerous cases:
++            #  a) CL + TE (TE overrides CL.. only safe if the recipient sees it that way too)
++            #  b) chunked HTTP/1.0 (always faulty)
++            if self.version < (1, 1):
++                # framing wonky, see RFC 9112 Section 6.1
++                self.force_close()
++                if not self.cfg.tolerate_dangerous_framing:
++                    raise InvalidHeader("TRANSFER-ENCODING", req=self)
++            if content_length is not None:
++                # we cannot be certain the message framing we understood matches proxy intent
++                #  -> whatever happens next, remaining input must not be trusted
++                self.force_close()
++                # either processing or rejecting is permitted in RFC 9112 Section 6.1
++                if not self.cfg.tolerate_dangerous_framing:
++                    raise InvalidHeader("CONTENT-LENGTH", req=self)
+             self.body = Body(ChunkedReader(self, self.unreader))
+         elif content_length is not None:
+             try:
+@@ -150,6 +193,8 @@ class Message(object):
+             self.body = Body(EOFReader(self.unreader))
+ 
+     def should_close(self):
++        if self.must_close:
++            return True
+         for (h, v) in self.headers:
+             if h == "CONNECTION":
+                 v = v.lower().strip()
+diff --git a/tests/requests/invalid/chunked_01.http b/tests/requests/invalid/chunked_01.http
+new file mode 100644
+index 00000000..7a8e55d2
+--- /dev/null
++++ b/tests/requests/invalid/chunked_01.http
+@@ -0,0 +1,12 @@
++POST /chunked_w_underscore_chunk_size HTTP/1.1\r\n
++Transfer-Encoding: chunked\r\n
++\r\n
++5\r\n
++hello\r\n
++6_0\r\n
++ world\r\n
++0\r\n
++\r\n
++POST /after HTTP/1.1\r\n
++Transfer-Encoding: identity\r\n
++\r\n
+diff --git a/tests/requests/invalid/chunked_01.py b/tests/requests/invalid/chunked_01.py
+new file mode 100644
+index 00000000..0571e118
+--- /dev/null
++++ b/tests/requests/invalid/chunked_01.py
+@@ -0,0 +1,2 @@
++from gunicorn.http.errors import InvalidChunkSize
++request = InvalidChunkSize
+diff --git a/tests/requests/invalid/chunked_02.http b/tests/requests/invalid/chunked_02.http
+new file mode 100644
+index 00000000..9ae49e52
+--- /dev/null
++++ b/tests/requests/invalid/chunked_02.http
+@@ -0,0 +1,9 @@
++POST /chunked_with_prefixed_value HTTP/1.1\r\n
++Content-Length: 12\r\n
++Transfer-Encoding: \tchunked\r\n
++\r\n
++5\r\n
++hello\r\n
++6\r\n
++ world\r\n
++\r\n
+diff --git a/tests/requests/invalid/chunked_02.py b/tests/requests/invalid/chunked_02.py
+new file mode 100644
+index 00000000..1541eb70
+--- /dev/null
++++ b/tests/requests/invalid/chunked_02.py
+@@ -0,0 +1,2 @@
++from gunicorn.http.errors import InvalidHeader
++request = InvalidHeader
+diff --git a/tests/requests/invalid/chunked_03.http b/tests/requests/invalid/chunked_03.http
+new file mode 100644
+index 00000000..0bbbfe6e
+--- /dev/null
++++ b/tests/requests/invalid/chunked_03.http
+@@ -0,0 +1,8 @@
++POST /double_chunked HTTP/1.1\r\n
++Transfer-Encoding: identity, chunked, identity, chunked\r\n
++\r\n
++5\r\n
++hello\r\n
++6\r\n
++ world\r\n
++\r\n
+diff --git a/tests/requests/invalid/chunked_03.py b/tests/requests/invalid/chunked_03.py
+new file mode 100644
+index 00000000..58a34600
+--- /dev/null
++++ b/tests/requests/invalid/chunked_03.py
+@@ -0,0 +1,2 @@
++from gunicorn.http.errors import UnsupportedTransferCoding
++request = UnsupportedTransferCoding
+diff --git a/tests/requests/invalid/chunked_04.http b/tests/requests/invalid/chunked_04.http
+new file mode 100644
+index 00000000..d47109e3
+--- /dev/null
++++ b/tests/requests/invalid/chunked_04.http
+@@ -0,0 +1,11 @@
++POST /chunked_twice HTTP/1.1\r\n
++Transfer-Encoding: identity\r\n
++Transfer-Encoding: chunked\r\n
++Transfer-Encoding: identity\r\n
++Transfer-Encoding: chunked\r\n
++\r\n
++5\r\n
++hello\r\n
++6\r\n
++ world\r\n
++\r\n
+diff --git a/tests/requests/invalid/chunked_04.py b/tests/requests/invalid/chunked_04.py
+new file mode 100644
+index 00000000..1541eb70
+--- /dev/null
++++ b/tests/requests/invalid/chunked_04.py
+@@ -0,0 +1,2 @@
++from gunicorn.http.errors import InvalidHeader
++request = InvalidHeader
+diff --git a/tests/requests/invalid/chunked_05.http b/tests/requests/invalid/chunked_05.http
+new file mode 100644
+index 00000000..014e85ac
+--- /dev/null
++++ b/tests/requests/invalid/chunked_05.http
+@@ -0,0 +1,11 @@
++POST /chunked_HTTP_1.0 HTTP/1.0\r\n
++Transfer-Encoding: chunked\r\n
++\r\n
++5\r\n
++hello\r\n
++6\r\n
++ world\r\n
++0\r\n
++Vary: *\r\n
++Content-Type: text/plain\r\n
++\r\n
+diff --git a/tests/requests/invalid/chunked_05.py b/tests/requests/invalid/chunked_05.py
+new file mode 100644
+index 00000000..1541eb70
+--- /dev/null
++++ b/tests/requests/invalid/chunked_05.py
+@@ -0,0 +1,2 @@
++from gunicorn.http.errors import InvalidHeader
++request = InvalidHeader
+diff --git a/tests/requests/invalid/chunked_06.http b/tests/requests/invalid/chunked_06.http
+new file mode 100644
+index 00000000..ef70faab
+--- /dev/null
++++ b/tests/requests/invalid/chunked_06.http
+@@ -0,0 +1,9 @@
++POST /chunked_not_last HTTP/1.1\r\n
++Transfer-Encoding: chunked\r\n
++Transfer-Encoding: gzip\r\n
++\r\n
++5\r\n
++hello\r\n
++6\r\n
++ world\r\n
++\r\n
+diff --git a/tests/requests/invalid/chunked_06.py b/tests/requests/invalid/chunked_06.py
+new file mode 100644
+index 00000000..58a34600
+--- /dev/null
++++ b/tests/requests/invalid/chunked_06.py
+@@ -0,0 +1,2 @@
++from gunicorn.http.errors import UnsupportedTransferCoding
++request = UnsupportedTransferCoding
+diff --git a/tests/requests/invalid/chunked_08.http b/tests/requests/invalid/chunked_08.http
+new file mode 100644
+index 00000000..8d4aaa6e
+--- /dev/null
++++ b/tests/requests/invalid/chunked_08.http
+@@ -0,0 +1,9 @@
++POST /chunked_not_last HTTP/1.1\r\n
++Transfer-Encoding: chunked\r\n
++Transfer-Encoding: identity\r\n
++\r\n
++5\r\n
++hello\r\n
++6\r\n
++ world\r\n
++\r\n
+diff --git a/tests/requests/invalid/chunked_08.py b/tests/requests/invalid/chunked_08.py
+new file mode 100644
+index 00000000..1541eb70
+--- /dev/null
++++ b/tests/requests/invalid/chunked_08.py
+@@ -0,0 +1,2 @@
++from gunicorn.http.errors import InvalidHeader
++request = InvalidHeader
+diff --git a/tests/requests/invalid/nonascii_01.http b/tests/requests/invalid/nonascii_01.http
+new file mode 100644
+index 00000000..30d18cd6
+--- /dev/null
++++ b/tests/requests/invalid/nonascii_01.http
+@@ -0,0 +1,4 @@
++GETß /germans.. HTTP/1.1\r\n
++Content-Length: 3\r\n
++\r\n
++ÄÄÄ
+diff --git a/tests/requests/invalid/nonascii_01.py b/tests/requests/invalid/nonascii_01.py
+new file mode 100644
+index 00000000..0da10f42
+--- /dev/null
++++ b/tests/requests/invalid/nonascii_01.py
+@@ -0,0 +1,5 @@
++from gunicorn.config import Config
++from gunicorn.http.errors import InvalidRequestMethod
++
++cfg = Config()
++request = InvalidRequestMethod
+diff --git a/tests/requests/invalid/nonascii_02.http b/tests/requests/invalid/nonascii_02.http
+new file mode 100644
+index 00000000..36a61703
+--- /dev/null
++++ b/tests/requests/invalid/nonascii_02.http
+@@ -0,0 +1,4 @@
++GETÿ /french.. HTTP/1.1\r\n
++Content-Length: 3\r\n
++\r\n
++ÄÄÄ
+diff --git a/tests/requests/invalid/nonascii_02.py b/tests/requests/invalid/nonascii_02.py
+new file mode 100644
+index 00000000..0da10f42
+--- /dev/null
++++ b/tests/requests/invalid/nonascii_02.py
+@@ -0,0 +1,5 @@
++from gunicorn.config import Config
++from gunicorn.http.errors import InvalidRequestMethod
++
++cfg = Config()
++request = InvalidRequestMethod
+diff --git a/tests/requests/invalid/nonascii_04.http b/tests/requests/invalid/nonascii_04.http
+new file mode 100644
+index 00000000..be0b1566
+--- /dev/null
++++ b/tests/requests/invalid/nonascii_04.http
+@@ -0,0 +1,5 @@
++GET /french.. HTTP/1.1\r\n
++Content-Lengthÿ: 3\r\n
++Content-Length: 3\r\n
++\r\n
++ÄÄÄ
+diff --git a/tests/requests/invalid/nonascii_04.py b/tests/requests/invalid/nonascii_04.py
+new file mode 100644
+index 00000000..d336fbc8
+--- /dev/null
++++ b/tests/requests/invalid/nonascii_04.py
+@@ -0,0 +1,5 @@
++from gunicorn.config import Config
++from gunicorn.http.errors import InvalidHeaderName
++
++cfg = Config()
++request = InvalidHeaderName
+diff --git a/tests/requests/invalid/prefix_01.http b/tests/requests/invalid/prefix_01.http
+new file mode 100644
+index 00000000..f8bdeb35
+--- /dev/null
++++ b/tests/requests/invalid/prefix_01.http
+@@ -0,0 +1,2 @@
++GET\0PROXY /foo HTTP/1.1\r\n
++\r\n
+diff --git a/tests/requests/invalid/prefix_01.py b/tests/requests/invalid/prefix_01.py
+new file mode 100644
+index 00000000..86a0774e
+--- /dev/null
++++ b/tests/requests/invalid/prefix_01.py
+@@ -0,0 +1,2 @@
++from gunicorn.http.errors import InvalidRequestMethod
++request = InvalidRequestMethod
+\ No newline at end of file
+diff --git a/tests/requests/invalid/prefix_02.http b/tests/requests/invalid/prefix_02.http
+new file mode 100644
+index 00000000..8a9b155c
+--- /dev/null
++++ b/tests/requests/invalid/prefix_02.http
+@@ -0,0 +1,2 @@
++GET\0 /foo HTTP/1.1\r\n
++\r\n
+diff --git a/tests/requests/invalid/prefix_02.py b/tests/requests/invalid/prefix_02.py
+new file mode 100644
+index 00000000..86a0774e
+--- /dev/null
++++ b/tests/requests/invalid/prefix_02.py
+@@ -0,0 +1,2 @@
++from gunicorn.http.errors import InvalidRequestMethod
++request = InvalidRequestMethod
+\ No newline at end of file
+diff --git a/tests/requests/invalid/prefix_03.http b/tests/requests/invalid/prefix_03.http
+new file mode 100644
+index 00000000..7803935c
+--- /dev/null
++++ b/tests/requests/invalid/prefix_03.http
+@@ -0,0 +1,4 @@
++GET /stuff/here?foo=bar HTTP/1.1\r\n
++Content-Length: 0 1\r\n
++\r\n
++x
+diff --git a/tests/requests/invalid/prefix_03.py b/tests/requests/invalid/prefix_03.py
+new file mode 100644
+index 00000000..95b0581a
+--- /dev/null
++++ b/tests/requests/invalid/prefix_03.py
+@@ -0,0 +1,5 @@
++from gunicorn.config import Config
++from gunicorn.http.errors import InvalidHeader
++
++cfg = Config()
++request = InvalidHeader
+diff --git a/tests/requests/invalid/prefix_04.http b/tests/requests/invalid/prefix_04.http
+new file mode 100644
+index 00000000..712631c8
+--- /dev/null
++++ b/tests/requests/invalid/prefix_04.http
+@@ -0,0 +1,5 @@
++GET /stuff/here?foo=bar HTTP/1.1\r\n
++Content-Length: 3 1\r\n
++\r\n
++xyz
++abc123
+diff --git a/tests/requests/invalid/prefix_04.py b/tests/requests/invalid/prefix_04.py
+new file mode 100644
+index 00000000..95b0581a
+--- /dev/null
++++ b/tests/requests/invalid/prefix_04.py
+@@ -0,0 +1,5 @@
++from gunicorn.config import Config
++from gunicorn.http.errors import InvalidHeader
++
++cfg = Config()
++request = InvalidHeader
+diff --git a/tests/requests/invalid/prefix_05.http b/tests/requests/invalid/prefix_05.http
+new file mode 100644
+index 00000000..120b6577
+--- /dev/null
++++ b/tests/requests/invalid/prefix_05.http
+@@ -0,0 +1,4 @@
++GET: /stuff/here?foo=bar HTTP/1.1\r\n
++Content-Length: 3\r\n
++\r\n
++xyz
+diff --git a/tests/requests/invalid/prefix_05.py b/tests/requests/invalid/prefix_05.py
+new file mode 100644
+index 00000000..0da10f42
+--- /dev/null
++++ b/tests/requests/invalid/prefix_05.py
+@@ -0,0 +1,5 @@
++from gunicorn.config import Config
++from gunicorn.http.errors import InvalidRequestMethod
++
++cfg = Config()
++request = InvalidRequestMethod
+diff --git a/tests/requests/valid/025.http b/tests/requests/valid/025.http
+index 62267add..f8d7fae2 100644
+--- a/tests/requests/valid/025.http
++++ b/tests/requests/valid/025.http
+@@ -1,5 +1,4 @@
+ POST /chunked_cont_h_at_first HTTP/1.1\r\n
+-Content-Length: -1\r\n
+ Transfer-Encoding: chunked\r\n
+ \r\n
+ 5; some; parameters=stuff\r\n
+@@ -16,4 +15,10 @@ Content-Length: -1\r\n
+ hello\r\n
+ 6; blahblah; blah\r\n
+  world\r\n
+-0\r\n
+\ No newline at end of file
++0\r\n
++\r\n
++PUT /ignored_after_dangerous_framing HTTP/1.1\r\n
++Content-Length: 3\r\n
++\r\n
++foo\r\n
++\r\n
+diff --git a/tests/requests/valid/025.py b/tests/requests/valid/025.py
+index 12ea9ab7..33f5845c 100644
+--- a/tests/requests/valid/025.py
++++ b/tests/requests/valid/025.py
+@@ -1,9 +1,13 @@
++from gunicorn.config import Config
++
++cfg = Config()
++cfg.set("tolerate_dangerous_framing", True)
++
+ req1 = {
+     "method": "POST",
+     "uri": uri("/chunked_cont_h_at_first"),
+     "version": (1, 1),
+     "headers": [
+-        ("CONTENT-LENGTH", "-1"),
+         ("TRANSFER-ENCODING", "chunked")
+     ],
+     "body": b"hello world"
+diff --git a/tests/requests/valid/025compat.http b/tests/requests/valid/025compat.http
+new file mode 100644
+index 00000000..828f6fb7
+--- /dev/null
++++ b/tests/requests/valid/025compat.http
+@@ -0,0 +1,18 @@
++POST /chunked_cont_h_at_first HTTP/1.1\r\n
++Transfer-Encoding: chunked\r\n
++\r\n
++5; some; parameters=stuff\r\n
++hello\r\n
++6; blahblah; blah\r\n
++ world\r\n
++0\r\n
++\r\n
++PUT /chunked_cont_h_at_last HTTP/1.1\r\n
++Transfer-Encoding: chunked\r\n
++Content-Length: -1\r\n
++\r\n
++5; some; parameters=stuff\r\n
++hello\r\n
++6; blahblah; blah\r\n
++ world\r\n
++0\r\n
+diff --git a/tests/requests/valid/025compat.py b/tests/requests/valid/025compat.py
+new file mode 100644
+index 00000000..33f5845c
+--- /dev/null
++++ b/tests/requests/valid/025compat.py
+@@ -0,0 +1,27 @@
++from gunicorn.config import Config
++
++cfg = Config()
++cfg.set("tolerate_dangerous_framing", True)
++
++req1 = {
++    "method": "POST",
++    "uri": uri("/chunked_cont_h_at_first"),
++    "version": (1, 1),
++    "headers": [
++        ("TRANSFER-ENCODING", "chunked")
++    ],
++    "body": b"hello world"
++}
++
++req2 = {
++    "method": "PUT",
++    "uri": uri("/chunked_cont_h_at_last"),
++    "version": (1, 1),
++    "headers": [
++        ("TRANSFER-ENCODING", "chunked"),
++        ("CONTENT-LENGTH", "-1"),
++    ],
++    "body": b"hello world"
++}
++
++request = [req1, req2]
+diff --git a/tests/requests/valid/029.http b/tests/requests/valid/029.http
+index c8611dbd..5d029dd9 100644
+--- a/tests/requests/valid/029.http
++++ b/tests/requests/valid/029.http
+@@ -1,6 +1,6 @@
+ GET /stuff/here?foo=bar HTTP/1.1\r\n
+-Transfer-Encoding: chunked\r\n
+ Transfer-Encoding: identity\r\n
++Transfer-Encoding: chunked\r\n
+ \r\n
+ 5\r\n
+ hello\r\n
+diff --git a/tests/requests/valid/029.py b/tests/requests/valid/029.py
+index f25449d1..64d02660 100644
+--- a/tests/requests/valid/029.py
++++ b/tests/requests/valid/029.py
+@@ -7,8 +7,8 @@ request = {
+     "uri": uri("/stuff/here?foo=bar"),
+     "version": (1, 1),
+     "headers": [
++        ('TRANSFER-ENCODING', 'identity'),
+         ('TRANSFER-ENCODING', 'chunked'),
+-        ('TRANSFER-ENCODING', 'identity')
+     ],
+     "body": b"hello"
+ }
+diff --git a/tests/treq.py b/tests/treq.py
+index ffe0691f..acfb9bb5 100644
+--- a/tests/treq.py
++++ b/tests/treq.py
+@@ -246,8 +246,10 @@ class request(object):
+     def check(self, cfg, sender, sizer, matcher):
+         cases = self.expect[:]
+         p = RequestParser(cfg, sender(), None)
+-        for req in p:
++        parsed_request_idx = -1
++        for parsed_request_idx, req in enumerate(p):
+             self.same(req, sizer, matcher, cases.pop(0))
++        assert len(self.expect) == parsed_request_idx + 1
+         assert not cases
+ 
+     def same(self, req, sizer, matcher, exp):
+-- 
+2.30.2
+

@@ -1,0 +1,59 @@
+From effe6b26097c7bc03fc59603c00d024034886812 Mon Sep 17 00:00:00 2001
+From: Ben Kallus <benjamin.p.kallus.gr@dartmouth.edu>
+Date: Mon, 28 Aug 2023 22:32:36 -0400
+Subject: RFC compliant header field+chunk validation
+
+* update HEADER_RE and HEADER_VALUE_RE to match the RFCs
+* update chunk length parsing to disallow 0x prefix and digit-separating underscores.
+---
+ gunicorn/http/body.py    | 5 ++---
+ gunicorn/http/message.py | 2 +-
+ gunicorn/http/wsgi.py    | 2 +-
+ 3 files changed, 4 insertions(+), 5 deletions(-)
+
+diff --git a/gunicorn/http/body.py b/gunicorn/http/body.py
+index afde3685..5bdd06ee 100644
+--- a/gunicorn/http/body.py
++++ b/gunicorn/http/body.py
+@@ -86,10 +86,9 @@ class ChunkedReader(object):
+         line, rest_chunk = data[:idx], data[idx + 2:]
+ 
+         chunk_size = line.split(b";", 1)[0].strip()
+-        try:
+-            chunk_size = int(chunk_size, 16)
+-        except ValueError:
++        if any(n not in b"0123456789abcdefABCDEF" for n in chunk_size):
+             raise InvalidChunkSize(chunk_size)
++        chunk_size = int(chunk_size, 16)
+ 
+         if chunk_size == 0:
+             try:
+diff --git a/gunicorn/http/message.py b/gunicorn/http/message.py
+index 5018a188..bb8327f3 100644
+--- a/gunicorn/http/message.py
++++ b/gunicorn/http/message.py
+@@ -22,7 +22,7 @@ MAX_REQUEST_LINE = 8190
+ MAX_HEADERS = 32768
+ DEFAULT_MAX_HEADERFIELD_SIZE = 8190
+ 
+-HEADER_RE = re.compile(r"[\x00-\x1F\x7F()<>@,;:\[\]={} \t\\\"]")
++HEADER_RE = re.compile(r"[^!#$%&'*+\-.\^_`|~0-9a-zA-Z]")
+ METH_RE = re.compile(r"[A-Z0-9$-_.]{3,20}")
+ VERSION_RE = re.compile(r"HTTP/(\d+)\.(\d+)")
+ 
+diff --git a/gunicorn/http/wsgi.py b/gunicorn/http/wsgi.py
+index 478677f4..83317875 100644
+--- a/gunicorn/http/wsgi.py
++++ b/gunicorn/http/wsgi.py
+@@ -18,7 +18,7 @@ import gunicorn.util as util
+ # with sending files in blocks over 2GB.
+ BLKSIZE = 0x3FFFFFFF
+ 
+-HEADER_VALUE_RE = re.compile(r'[\x00-\x1F\x7F]')
++HEADER_VALUE_RE = re.compile(r'[^ \t\x21-\x7e\x80-\xff]')
+ 
+ log = logging.getLogger(__name__)
+ 
+-- 
+2.30.2
+

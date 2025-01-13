@@ -1,0 +1,25 @@
+From fcbb5107d54794cf3f5f6eebe72823380b1e1fe6 Mon Sep 17 00:00:00 2001
+From: Ben Kallus <benjamin.p.kallus.gr@dartmouth.edu>
+Date: Mon, 4 Dec 2023 17:08:16 -0500
+Subject: Disallow empty header names.
+
+---
+ gunicorn/http/message.py | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/gunicorn/http/message.py b/gunicorn/http/message.py
+index bb8327f3..11d485de 100644
+--- a/gunicorn/http/message.py
++++ b/gunicorn/http/message.py
+@@ -87,7 +87,7 @@ class Message(object):
+             # Parse initial header name : value pair.
+             curr = lines.pop(0)
+             header_length = len(curr)
+-            if curr.find(":") < 0:
++            if curr.find(":") <= 0:
+                 raise InvalidHeader(curr.strip())
+             name, value = curr.split(":", 1)
+             if self.cfg.strip_header_spaces:
+-- 
+2.30.2
+
