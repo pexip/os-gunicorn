@@ -11,8 +11,14 @@ How do I set SCRIPT_NAME?
 -------------------------
 
 By default ``SCRIPT_NAME`` is an empty string. The value could be set by
-setting ``SCRIPT_NAME`` in the environment or as an HTTP header.
+setting ``SCRIPT_NAME`` in the environment or as an HTTP header. Note that
+this headers contains and underscore, so it is only accepted from trusted
+forwarders listed in the :ref:`forwarded-allow-ips` setting.
 
+.. note::
+
+   If your application should appear in a subfolder, your ``SCRIPT_NAME``
+   would typically start with single slash but contain no trailing slash.
 
 Server Stuff
 ============
@@ -129,9 +135,13 @@ One of the first settings that usually needs to be bumped is the maximum number
 of open file descriptors for a given process. For the confused out there,
 remember that Unices treat sockets as files.
 
-::
+.. warning:: ``sudo ulimit`` may not work
 
-    $ sudo ulimit -n 2048
+Considering non-privileged users are not able to relax the limit, you should
+firstly switch to root user, increase the limit, then run gunicorn. Using ``sudo
+ulimit`` would not take effect.
+
+Try systemd's service unit file, or an initscript which runs as root.
 
 How can I increase the maximum socket backlog?
 ----------------------------------------------
@@ -216,7 +226,7 @@ If you use a reverse proxy like NGINX you might see 502 returned to a client.
 
 In the gunicorn logs you might simply see ``[35] [INFO] Booting worker with pid: 35``
 
-It's completely normal for workers to be killed and startup, for example due to
+It's completely normal for workers to be stop and start, for example due to
 max-requests setting. Ordinarily gunicorn will capture any signals and log something.
 
 This particular failure case is usually due to a SIGKILL being received, as it's

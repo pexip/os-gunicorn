@@ -10,13 +10,13 @@ Signed-off-by: Chris Lamb <lamby@debian.org>
  1 file changed, 16 insertions(+)
 
 diff --git a/gunicorn/util.py b/gunicorn/util.py
-index d8571dd..d1d7774 100644
+index 923e38f..d55344f 100644
 --- a/gunicorn/util.py
 +++ b/gunicorn/util.py
-@@ -153,6 +153,22 @@ def set_owner_process(uid, gid, initgroups=False):
+@@ -164,6 +164,22 @@ def set_owner_process(uid, gid, initgroups=False):
                  raise
  
-     if uid:
+     if uid and uid != os.getuid():
 +        username = None
 +        try:
 +            username = pwd.getpwuid(uid)[0]

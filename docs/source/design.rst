@@ -53,6 +53,15 @@ installed and `setup <http://www.gevent.org/api/gevent.monkey.html#plugins>`_.
 Other applications might not be compatible at all as they, e.g., rely on
 the original unpatched behavior.
 
+Gthread Workers
+---------------
+
+The worker `gthread` is a threaded worker. It accepts connections in the
+main loop. Accepted connections are added to the thread pool as a
+connection job. On keepalive connections are put back in the loop
+waiting for an event. If no event happens after the keepalive timeout,
+the connection is closed.
+
 Tornado Workers
 ---------------
 
@@ -66,16 +75,7 @@ WSGI application, this is not a recommended configuration.
 AsyncIO Workers
 ---------------
 
-These workers are compatible with Python 3.
-
-The worker `gthread` is a threaded worker. It accepts connections in the
-main loop, accepted connections are added to the thread pool as a
-connection job. On keepalive connections are put back in the loop
-waiting for an event. If no event happen after the keep alive timeout,
-the connection is closed.
-
-You can port also your application to use aiohttp_'s ``web.Application`` API and use the
-``aiohttp.worker.GunicornWebWorker`` worker.
+Third-party workers can be usedd to use Gunicorn with asyncio frameworks. 
 
 Choosing a Worker Type
 ======================
@@ -140,10 +140,6 @@ signal, as the application code will be shared among workers but loaded only in
 the worker processes (unlike when using the preload setting, which loads the
 code in the master process).
 
-.. note::
-   Under Python 2.x, you need to install the 'futures' package to use this
-   feature.
-
 .. _Greenlets: https://github.com/python-greenlet/greenlet
 .. _Eventlet: http://eventlet.net/
 .. _Gevent: http://www.gevent.org/
@@ -151,4 +147,4 @@ code in the master process).
 .. _aiohttp: https://docs.aiohttp.org/en/stable/deployment.html#nginx-gunicorn
 .. _`example`: https://github.com/benoitc/gunicorn/blob/master/examples/frameworks/flaskapp_aiohttp_wsgi.py
 .. _Psycopg: http://initd.org/psycopg/
-.. _psycogreen: https://bitbucket.org/dvarrazzo/psycogreen
+.. _psycogreen: https://github.com/psycopg/psycogreen/

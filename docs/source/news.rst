@@ -2,53 +2,73 @@
 Changelog
 =========
 
-20.1.0 - 2021-02-12
+23.0.0 - 2024-08-10
 ===================
 
-- document WEB_CONCURRENCY is set by, at least, Heroku
-- capture peername from accept: Avoid calls to getpeername by capturing the peer name returned by accept
-- log a warning when a worker was terminated due to a signal
-- fix tornado usage with latest versions of Django 
-- add support for python -m gunicorn
-- fix systemd socket activation example
-- allows to set wsgi application in configg file using ``wsgi_app``
-- document ``--timeout = 0``
-- always close a connection when the number of requests exceeds the max requests
-- Disable keepalive during graceful shutdown
-- kill tasks in the gthread workers during upgrade
-- fix latency in gevent worker when accepting new requests
-- fix file watcher: handle errors when new worker reboot and ensure the list of files is kept
-- document the default name and path of the configuration file
-- document how variable impact configuration
-- document the ``$PORT`` environment variable
-- added milliseconds option to request_time in access_log
-- added PIP requirements to be used for example
-- remove version from the Server header
-- fix sendfile: use ``socket.sendfile`` instead of ``os.sendfile``
-- reloader: use  absolute path to prevent empty to prevent0 ``InotifyError`` when a file 
-  is added to the working directory
-- Add --print-config option to print the resolved settings at startup.
-- remove the ``--log-dict-config`` CLI flag because it never had a working format
-  (the ``logconfig_dict`` setting in configuration files continues to work)
+- minor docs fixes (:pr:`3217`, :pr:`3089`, :pr:`3167`)
+- worker_class parameter accepts a class (:pr:`3079`)
+- fix deadlock if request terminated during chunked parsing (:pr:`2688`)
+- permit receiving Transfer-Encodings: compress, deflate, gzip (:pr:`3261`)
+- permit Transfer-Encoding headers specifying multiple encodings. note: no parameters, still (:pr:`3261`)
+- sdist generation now explicitly excludes sphinx build folder (:pr:`3257`)
+- decode bytes-typed status (as can be passed by gevent) as utf-8 instead of raising `TypeError` (:pr:`2336`)
+- raise correct Exception when encounting invalid chunked requests (:pr:`3258`)
+- the SCRIPT_NAME and PATH_INFO headers, when received from allowed forwarders, are no longer restricted for containing an underscore (:pr:`3192`)
+- include IPv6 loopback address ``[::1]`` in default for :ref:`forwarded-allow-ips` and :ref:`proxy-allow-ips` (:pr:`3192`)
+
+** NOTE **
+
+- The SCRIPT_NAME change mitigates a regression that appeared first in the 22.0.0 release
+- Review your :ref:`forwarded-allow-ips` setting if you are still not seeing the SCRIPT_NAME transmitted
+- Review your :ref:`forwarder-headers` setting if you are missing headers after upgrading from a version prior to 22.0.0
 
 ** Breaking changes **
 
-- minimum version is Python 3.5
-- remove version from the Server header 
+- refuse requests where the uri field is empty (:pr:`3255`)
+- refuse requests with invalid CR/LR/NUL in heade field values (:pr:`3253`)
+- remove temporary ``--tolerate-dangerous-framing`` switch from 22.0 (:pr:`3260`)
+- If any of the breaking changes affect you, be aware that now refused requests can post a security problem, especially so in setups involving request pipe-lining and/or proxies.
 
-** Others **
+22.0.0 - 2024-04-17
+===================
 
-- miscellaneous changes in the code base to be a better citizen with Python 3
-- remove dead code
-- fix documentation generation
+- use `utime` to notify workers liveness 
+- migrate setup to pyproject.toml
+- fix numerous security vulnerabilities in HTTP parser (closing some request smuggling vectors)
+- parsing additional requests is no longer attempted past unsupported request framing
+- on HTTP versions < 1.1 support for chunked transfer is refused (only used in exploits)
+- requests conflicting configured or passed SCRIPT_NAME now produce a verbose error
+- Trailer fields are no longer inspected for headers indicating secure scheme
+- support Python 3.12
 
+** Breaking changes **
+
+- minimum version is Python 3.7
+- the limitations on valid characters in the HTTP method have been bounded to Internet Standards
+- requests specifying unsupported transfer coding (order) are refused by default (rare)
+- HTTP methods are no longer casefolded by default (IANA method registry contains none affected)
+- HTTP methods containing the number sign (#) are no longer accepted by default (rare)
+- HTTP versions < 1.0 or >= 2.0 are no longer accepted by default (rare, only HTTP/1.1 is supported)
+- HTTP versions consisting of multiple digits or containing a prefix/suffix are no longer accepted
+- HTTP header field names Gunicorn cannot safely map to variables are silently dropped, as in other software
+- HTTP headers with empty field name are refused by default (no legitimate use cases, used in exploits)
+- requests with both Transfer-Encoding and Content-Length are refused by default (such a message might indicate an attempt to perform request smuggling)
+- empty transfer codings are no longer permitted (reportedly seen with really old & broken proxies)
+
+
+** SECURITY **
+
+- fix CVE-2024-1135
 
 History
 =======
 
 .. toctree::
    :titlesonly:
-
+   
+   2024-news
+   2023-news
+   2021-news
    2020-news
    2019-news
    2018-news

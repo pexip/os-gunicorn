@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -
-
 # Copyright 2013 Dariusz Suchojad <dsuch at zato.io>
 #
 # This file is part of gunicorn released under the MIT license.
@@ -8,7 +6,7 @@
 import pytest
 
 from gunicorn.config import (
-    KeyFile, CertFile, SSLVersion, CACerts, SuppressRaggedEOFs,
+    KeyFile, CertFile, CACerts, SuppressRaggedEOFs,
     DoHandshakeOnConnect, Setting, Ciphers,
 )
 
@@ -30,14 +28,6 @@ def test_certfile():
     assert CertFile.section == 'SSL'
     assert CertFile.cli == ['--certfile']
     assert CertFile.default is None
-
-
-def test_ssl_version():
-    assert issubclass(SSLVersion, Setting)
-    assert SSLVersion.name == 'ssl_version'
-    assert SSLVersion.section == 'SSL'
-    assert SSLVersion.cli == ['--ssl-version']
-    assert SSLVersion.default == ssl.PROTOCOL_SSLv23
 
 
 def test_cacerts():

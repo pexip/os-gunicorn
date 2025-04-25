@@ -7,10 +7,10 @@ Subject: Also drop supplemental groups.
  1 file changed, 7 insertions(+)
 
 diff --git a/gunicorn/util.py b/gunicorn/util.py
-index a821e35..f6212a6 100644
+index ecd8174..3c5d404 100644
 --- a/gunicorn/util.py
 +++ b/gunicorn/util.py
-@@ -145,6 +145,13 @@ def set_owner_process(uid, gid, initgroups=False):
+@@ -156,6 +156,13 @@ def set_owner_process(uid, gid, initgroups=False):
          elif gid != os.getgid():
              os.setgid(gid)
  
@@ -21,6 +21,6 @@ index a821e35..f6212a6 100644
 +            if e.errno != errno.EPERM:
 +                raise
 +
-     if uid:
+     if uid and uid != os.getuid():
          os.setuid(uid)
  

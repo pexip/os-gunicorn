@@ -38,6 +38,22 @@ To turn off buffering, you only need to add ``proxy_buffering off;`` to your
   }
   ...
 
+If you want to ignore aborted requests like health check of Load Balancer, some
+of which close the connection without waiting for a response, you need to turn
+on `ignoring client abort`_.
+
+To ignore aborted requests, you only need to add
+``proxy_ignore_client_abort on;`` to your ``location`` block::
+
+    ...
+    proxy_ignore_client_abort on;
+    ...
+
+.. note::
+    The default value of ``proxy_ignore_client_abort`` is ``off``. Error code
+    499 may appear in Nginx log and ``Ignoring EPIPE`` may appear in Gunicorn
+    log if loglevel is set to ``debug``.
+
 It is recommended to pass protocol information to Gunicorn. Many web
 frameworks use this information to generate URLs. Without this
 information, the application may mistakenly generate 'http' URLs in
@@ -216,7 +232,7 @@ A tool that is starting to be common on linux systems is Systemd_. It is a
 system services manager that allows for strict process management, resources
 and permissions control.
 
-Below are configurations files and instructions for using systemd to create
+Below are configuration files and instructions for using systemd to create
 a unix socket for incoming Gunicorn requests.  Systemd will listen on this
 socket and start gunicorn automatically in response to traffic.  Later in
 this section are instructions for configuring Nginx to forward web traffic
@@ -230,13 +246,14 @@ to the newly created unix socket:
     After=network.target
 
     [Service]
+    # gunicorn can let systemd know when it is ready
     Type=notify
+    NotifyAccess=main
     # the specific user that our service will run as
     User=someuser
     Group=someuser
-    # another option for an even more restricted service is
-    # DynamicUser=yes
-    # see http://0pointer.net/blog/dynamic-users-with-systemd.html
+    # this user can be transiently created by systemd
+    # DynamicUser=true
     RuntimeDirectory=gunicorn
     WorkingDirectory=/home/someuser/applicationroot
     ExecStart=/usr/bin/gunicorn applicationname.wsgi
@@ -244,6 +261,8 @@ to the newly created unix socket:
     KillMode=mixed
     TimeoutStopSec=5
     PrivateTmp=true
+    # if your app does not need administrative capabilities, let systemd know
+    # ProtectSystem=strict
 
     [Install]
     WantedBy=multi-user.target
@@ -256,11 +275,12 @@ to the newly created unix socket:
     [Socket]
     ListenStream=/run/gunicorn.sock
     # Our service won't need permissions for the socket, since it
-    # inherits the file descriptor by socket activation
-    # only the nginx daemon will need access to the socket
+    # inherits the file descriptor by socket activation.
+    # Only the nginx daemon will need access to the socket:
     SocketUser=www-data
-    # Optionally restrict the socket permissions even more.
-    # SocketMode=600
+    SocketGroup=www-data
+    # Once the user/group is correct, restrict the permissions:
+    SocketMode=0660
 
     [Install]
     WantedBy=sockets.target
@@ -357,3 +377,4 @@ utility::
 .. _Virtualenv: https://pypi.python.org/pypi/virtualenv
 .. _Systemd: https://www.freedesktop.org/wiki/Software/systemd/
 .. _Gaffer: https://gaffer.readthedocs.io/
+.. _`ignoring client abort`: http://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_ignore_client_abort
