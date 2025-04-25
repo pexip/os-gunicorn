@@ -15,7 +15,7 @@ Vcs-Git: https://salsa.debian.org/python-team/packages/gunicorn.git
 Vcs-Browser: https://salsa.debian.org/python-team/packages/gunicorn
 Homepage: https://gunicorn.org/
 Rules-Requires-Root: no
-XS-Pexip-Upstream: http://deb.debian.org/debian/ bookworm
+XS-Pexip-Upstream: http://deb.debian.org/debian/ trixie
 
 Package: gunicorn
 Architecture: all
