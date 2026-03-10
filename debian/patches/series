@@ -4,3 +4,4 @@
 0004-Set-supplementary-groups-when-changing-uid.patch
 # Pexip patches
 pexip-0001-access-log-add-P-ID-without.patch
+pexip-0002-gthread-improvements.patch
