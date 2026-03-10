@@ -3,6 +3,7 @@ From: Huw Jones <huw@pexip.com>
 Date: Fri, 4 Feb 2022 14:40:18 +0000
 Subject: [PATCH] access log: add (P)ID without <>
 
+Allows outputting an access log in the same format as the web server log.
 ---
  gunicorn/config.py   | 3 ++-
  gunicorn/glogging.py | 1 +
