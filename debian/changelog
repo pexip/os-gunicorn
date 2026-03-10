@@ -1,6 +1,8 @@
 gunicorn (23.0.0-1+pexip25u3) pexip-trixie; urgency=medium
 
   * d/p: add fix for gthread 502s when worker restarts
+  * d/c: add missing test deps
+  * d/r: enable tests (even though they require internet access)
   * d/p/access-log: rename + explain why needed
 
  -- Huw Jones <huw@pexip.com>  Tue, 10 Mar 2026 11:13:13 +0000

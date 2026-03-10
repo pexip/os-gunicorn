@@ -12,6 +12,9 @@ Build-Depends:
  python3-all,
  python3-packaging,
  python3-setuptools,
+ python3-pytest <!nocheck>,
+ python3-pytest-cov <!nocheck>,
+ python3-gevent <!nocheck>,
 Standards-Version: 4.6.1
 Vcs-Git: https://salsa.debian.org/python-team/packages/gunicorn.git
 Vcs-Browser: https://salsa.debian.org/python-team/packages/gunicorn
